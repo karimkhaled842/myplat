@@ -1,0 +1,16 @@
+# Intentionally OUTDATED, vulnerable dependencies so the SCA scanners (trivy/grype)
+# and the SBOM->CVE linkage have real CVEs to report. Pinned-together so the app
+# still runs on the (also-outdated) python:3.9 base image in the Dockerfile.
+#
+# Known CVEs these pull in (sample): Flask/Werkzeug debugger PIN + open redirect,
+# Jinja2 sandbox escapes, PyYAML CVE-2020-1747 (arbitrary code exec, full_load),
+# requests CVE-2018-18074 (cred leak), urllib3 CVE-2019-11324.
+Flask==2.0.1
+Werkzeug==2.0.1
+Jinja2==3.0.1
+itsdangerous==2.0.1
+MarkupSafe==2.0.1
+click==8.0.1
+requests==2.19.1
+PyYAML==5.1
+urllib3==1.24.1

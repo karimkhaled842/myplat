@@ -1,0 +1,18 @@
+apiVersion: policy.sentinel.io/v1
+kind: Policy
+metadata:
+  name: no-crit-epss
+  labels:
+    framework: pci-dss
+spec:
+  remediation_mode: enforce        # enforce => fails the CLI gate / blocks the build
+  framework: pci-dss
+  controls: ["6.3.1", "6.3.2", "11.3"]
+  description: >-
+    PCI-DSS v4.0: no open Critical finding with high exploit likelihood
+    (EPSS > 0.5). Known-exploited (KEV) criticals are covered by this too.
+  rule:
+    match:
+      status: open
+      min_severity: critical
+      min_epss: 0.5

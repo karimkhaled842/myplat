@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: myplat-api
+  namespace: myplat
+  labels:
+    app: myplat-api
+spec:
+  selector:
+    app: myplat-api
+  ports:
+    - port: 80
+      targetPort: 5000
+      protocol: TCP
+  type: ClusterIP

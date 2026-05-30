@@ -1,0 +1,15 @@
+# SentinelSDLC repo config — consumed by `sentinel scan --config sentinel.yaml`.
+# Committed so the security tooling + gate threshold are reviewable as code.
+asset: myplat-api
+target: .
+tools:
+  - semgrep      # SAST
+  - bandit       # SAST (Python)
+  - gitleaks     # secrets
+  - trivy        # SCA / container / IaC
+  - grype        # SCA
+  - checkov      # IaC (Dockerfile + k8s)
+  - nuclei       # DAST
+
+# The enforce policy evaluated in CI (must already exist on the hub).
+gate_policy: no-crit-epss

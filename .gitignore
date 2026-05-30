@@ -1,0 +1,8 @@
+artifacts/
+*.db
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+*.sarif
+sbom.json

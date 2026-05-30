@@ -1,0 +1,76 @@
+# SentinelSDLC DevSecOps pipeline (CI-as-code).
+#
+# Runs on the self-hosted runner registered to this repo. The runner host already
+# has the SentinelSDLC platform checked out at /home/karim/appSecPlatform, so the
+# `sentinel` CLI is installed from that path. Configure repo secrets:
+#   SENTINEL_HUB_URL   e.g. http://127.0.0.1:8000   (the port-forwarded in-cluster hub)
+#   SENTINEL_TOKEN     the hub API bearer token
+#
+# This mirrors `make pipeline` / pipeline/run.sh — the local script is the source of
+# truth; this workflow is the GitOps/CI face of the same flow.
+name: SentinelSDLC
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write     # to comment
+  security-events: write   # to upload SARIF
+
+jobs:
+  sentinel:
+    runs-on: self-hosted
+    env:
+      SENTINEL_API_URL: ${{ secrets.SENTINEL_HUB_URL }}
+      SENTINEL_TOKEN: ${{ secrets.SENTINEL_TOKEN }}
+      ASSET: myplat-api
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install scanners + Sentinel CLI
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit semgrep checkov
+          pip install /home/karim/appSecPlatform/cli
+
+      - name: Build & test
+        run: |
+          pip install -r requirements.txt
+          pytest -q
+
+      - name: Register asset (idempotent)
+        run: |
+          sentinel join --asset-name "$ASSET" --kind service \
+            --labels env=prod,scope=pci --internet-facing \
+            --sensitivity cardholder --deployment prod --accept || true
+
+      - name: Scan & import (SAST / secrets / SCA / IaC / DAST)
+        run: sentinel scan --asset "$ASSET" --config sentinel.yaml
+
+      - name: Apply policy + placement (governance-as-code)
+        run: |
+          sentinel policy apply -f policy.yaml || true
+          sentinel placement create --name no-crit-epss-prod \
+            --policy no-crit-epss --selector env=prod || true
+
+      - name: Reports (SARIF / JUnit / Markdown)
+        run: |
+          sentinel report --format sarif --asset "$ASSET" --out sentinel.sarif
+          sentinel report --format junit --asset "$ASSET" --out report.xml
+          sentinel report --format markdown --asset "$ASSET" > sentinel-summary.md
+
+      - name: Upload SARIF to code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: sentinel.sarif
+
+      - name: Security gate (enforce — blocks the build on breach)
+        run: sentinel gate --policy no-crit-epss --asset "$ASSET"

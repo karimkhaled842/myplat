@@ -1,0 +1,8 @@
+apiVersion: policy.sentinel.io/v1
+kind: Placement
+metadata:
+  name: no-crit-epss-prod
+spec:
+  policy: no-crit-epss
+  selector:
+    env: prod          # apply this policy to every accepted asset labelled env=prod

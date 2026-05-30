@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myplat-api
+  namespace: myplat
+  labels:
+    app: myplat-api
+    env: prod
+    scope: pci
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: myplat-api
+  template:
+    metadata:
+      labels:
+        app: myplat-api
+        env: prod
+    spec:
+      containers:
+        - name: myplat-api
+          # kind-loaded local image; Never => never try to pull from a registry.
+          image: myplat-api:local
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 5000
+          # --- Intentional k8s misconfigurations (checkov + trivy-k8s) --------
+          # Missing: resource limits/requests, readOnlyRootFilesystem,
+          # runAsNonRoot, seccompProfile, dropped capabilities.
+          securityContext:
+            allowPrivilegeEscalation: true   # CKV_K8S_20
+            runAsUser: 0                      # runs as root (CKV_K8S_40)
+            privileged: false
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 5000
+            initialDelaySeconds: 3
+            periodSeconds: 5
