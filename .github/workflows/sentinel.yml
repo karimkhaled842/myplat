@@ -1,13 +1,15 @@
 # SentinelSDLC DevSecOps pipeline (CI-as-code).
 #
-# Runs on the self-hosted runner registered to this repo. The runner host already
-# has the SentinelSDLC platform checked out at /home/karim/appSecPlatform, so the
-# `sentinel` CLI is installed from that path. Configure repo secrets:
-#   SENTINEL_HUB_URL   e.g. http://127.0.0.1:8000   (the port-forwarded in-cluster hub)
-#   SENTINEL_TOKEN     the hub API bearer token
+# Runs on the self-hosted runner, which IS the host where the SentinelSDLC
+# platform lives (/home/karim/appSecPlatform) and the in-cluster hub is
+# port-forwarded. So there is NOTHING to install — the `sentinel` CLI and all
+# scanners (bandit/semgrep/checkov in the platform venv; gitleaks/grype in
+# ~/.local/bin; trivy on PATH) already exist on the host. We just put them on
+# PATH. The local `make pipeline` / pipeline/run.sh remains the source of truth.
 #
-# This mirrors `make pipeline` / pipeline/run.sh — the local script is the source of
-# truth; this workflow is the GitOps/CI face of the same flow.
+# Optional repo secrets (sensible defaults applied if unset):
+#   SENTINEL_HUB_URL  default http://127.0.0.1:8001  (the port-forwarded hub)
+#   SENTINEL_TOKEN    default dev-sentinel-token
 name: SentinelSDLC
 on:
   pull_request:
@@ -23,27 +25,26 @@ jobs:
   sentinel:
     runs-on: self-hosted
     env:
-      SENTINEL_API_URL: ${{ secrets.SENTINEL_HUB_URL }}
-      SENTINEL_TOKEN: ${{ secrets.SENTINEL_TOKEN }}
+      SENTINEL_API_URL: ${{ secrets.SENTINEL_HUB_URL || 'http://127.0.0.1:8001' }}
+      SENTINEL_TOKEN: ${{ secrets.SENTINEL_TOKEN || 'dev-sentinel-token' }}
       ASSET: myplat-api
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install scanners + Sentinel CLI
+      # No tool installs — the runner is the host. Just expose the existing
+      # SentinelSDLC CLI + scanners (and gitleaks/grype) on PATH for this job.
+      - name: Put host toolchain on PATH
         run: |
-          python -m pip install --upgrade pip
-          pip install bandit semgrep checkov
-          pip install /home/karim/appSecPlatform/cli
+          echo "/home/karim/appSecPlatform/.venv/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Build & test
+      # The app pins OLD deps that would clash with the CLI's deps, so its tests
+      # run in a throwaway venv — this is the only install, and it is isolated.
+      - name: Build & unit test
         run: |
-          pip install -r requirements.txt
-          pytest -q
+          python3 -m venv /tmp/myplat-ci
+          /tmp/myplat-ci/bin/pip install -q -r requirements.txt pytest
+          /tmp/myplat-ci/bin/python -m pytest -q tests
 
       - name: Register asset (idempotent)
         run: |
@@ -51,16 +52,18 @@ jobs:
             --labels env=prod,scope=pci --internet-facing \
             --sensitivity cardholder --deployment prod --accept || true
 
-      - name: Scan & import (SAST / secrets / SCA / IaC / DAST)
+      - name: Scan & import (SAST / secrets / SCA / IaC)
         run: sentinel scan --asset "$ASSET" --config sentinel.yaml
 
-      - name: Apply policy + placement (governance-as-code)
+      - name: Governance policy + placement (idempotent)
         run: |
           sentinel policy apply -f policy.yaml || true
           sentinel placement create --name no-crit-epss-prod \
             --policy no-crit-epss --selector env=prod || true
 
+      # if: always() so the SARIF is produced even if the scan step had a hiccup.
       - name: Reports (SARIF / JUnit / Markdown)
+        if: always()
         run: |
           sentinel report --format sarif --asset "$ASSET" --out sentinel.sarif
           sentinel report --format junit --asset "$ASSET" --out report.xml
